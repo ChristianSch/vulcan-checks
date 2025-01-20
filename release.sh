@@ -30,22 +30,22 @@ log_msg() {
 }
 
 PLATFORMS=${PLATFORMS:-"linux/arm64 linux/amd64"}
-BRANCH=${TRAVIS_BRANCH:-$(git_branch .)}
+BRANCH=${GIT_BRANCH:-$(git_branch .)}
 BRANCH=${BRANCH//\//-}   # Replace / with - for branch names such as dependabot generated ones
 
 IMAGE_TAGS=()
 CACHE_TAGS=(edge)
 if [[ $BRANCH == "master" ]]; then
     IMAGE_TAGS+=(latest edge)
-    FORCE_BUILD="${FORCE_BUILD:-true}"
+    FORCE_BUILD="${FORCE_BUILD:-".*"}"
     ADD_TAG_CHECK=true
-elif [[ $TRAVIS_TAG != "" ]]; then
-    IMAGE_TAGS+=("$TRAVIS_TAG")
-    FORCE_BUILD="${FORCE_BUILD:-true}"
+elif [[ $GIT_TAG != "" ]]; then
+    IMAGE_TAGS+=("$GIT_TAG")
+    FORCE_BUILD="${FORCE_BUILD:-".*"}"
     ADD_TAG_CHECK=false
 else
     IMAGE_TAGS+=("$BRANCH" "$BRANCH-$(git rev-parse --short HEAD)")
-    FORCE_BUILD="${FORCE_BUILD:-false}"
+    FORCE_BUILD="${FORCE_BUILD:-"^$"}"
     ADD_TAG_CHECK=true
     CACHE_TAGS+=("$BRANCH")  # First time will print a message => ERROR importing cache manifest from XXXX
 fi
@@ -55,7 +55,7 @@ log_msg "Starting FORCE_BUILD=$FORCE_BUILD"
 CHECKS=()
 for cf in cmd/*; do
     check=$(basename "$cf")
-    if [[ $FORCE_BUILD == "false" ]]; then
+    if [[ ! $check =~ $FORCE_BUILD ]]; then
         TAG_CHECK="$(get_tag_check "cmd/$check")"
         # Check if check version (code+dep) has been already pushed to Registry
         if [[ $(dkr_image_exists "$check" "$TAG_CHECK") == true ]]; then
@@ -76,16 +76,6 @@ fi
 go mod download
 log_msg "Downloaded go mod"
 
-# Login into registry (authenticated pulls)
-dkr_login > /dev/null
-
-if ! docker buildx inspect multiarch; then
-    # see https://github.com/docker/buildx/issues/495#issuecomment-761562905
-    docker run --rm -it --privileged multiarch/qemu-user-static --reset -p yes
-    docker buildx create --name multiarch --driver docker-container --use --bootstrap
-    log_msg "Created buildx"
-fi
-
 # Generate a checktypes for the current tag.
 TEST_TAG="${IMAGE_TAGS[0]}"
 
@@ -97,6 +87,8 @@ export VULCAN_CHECKTYPES=./checktypes.json
 BUILDX_ARGS=()
 BUILDX_ARGS+=("--label" "org.opencontainers.image.revision=$(git rev-parse --short HEAD)")
 BUILDX_ARGS+=("--label" "org.opencontainers.image.ref=https://github.com/adevinta/vulcan-checks")
+# See https://stackoverflow.com/questions/76499510/why-i-can-not-pull-the-docker-image-that-is-public-in-dockerhub
+BUILDX_ARGS+=("--provenance=false")
 
 # Iterate over all checks
 for check in "${CHECKS[@]}"; do
@@ -150,5 +142,3 @@ for check in "${CHECKS[@]}"; do
 
     log_msg "Pushed image $check:[${IMAGE_TAGS[*]}]"
 done
-
-docker buildx rm multiarch

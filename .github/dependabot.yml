@@ -5,8 +5,14 @@ updates:
   schedule:
     interval: "daily"
   ignore:
-  - dependency-name: "github.com/aws/aws-sdk-go"
+  - dependency-name: "github.com/aws/aws-sdk-go*"
     update-types: ["version-update:semver-patch"]
+  labels:
+    - "dependencies"
+- package-ecosystem: "docker"
+  directory: cmd/vulcan-gitleaks
+  schedule:
+    interval: "weekly"
   labels:
     - "dependencies"
 - package-ecosystem: "docker"
